@@ -32,30 +32,27 @@ def flatten_json(obj: Any, parent_key: str = "", sep: str = ".") -> dict[str, An
     return dict(items)
 
 
-@app.cls(image=image)
-class JsonToCsv:
-    @modal.method()
-    def convert(self, json_str: str) -> str:
-        parsed = json.loads(json_str)
-        if isinstance(parsed, dict):
-            parsed = [parsed]
+def json_to_csv(json_str: str) -> str:
+    parsed = json.loads(json_str)
+    if isinstance(parsed, dict):
+        parsed = [parsed]
 
-        rows = [flatten_json(item) for item in parsed]
-        fieldnames: list[str] = []
-        seen: set[str] = set()
-        for row in rows:
-            for k in row:
-                if k not in seen:
-                    fieldnames.append(k)
-                    seen.add(k)
+    rows = [flatten_json(item) for item in parsed]
+    fieldnames: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        for k in row:
+            if k not in seen:
+                fieldnames.append(k)
+                seen.add(k)
 
-        output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
 
-        return output.getvalue()
+    return output.getvalue()
 
 
 @app.function(image=image)
@@ -68,8 +65,7 @@ async def converter(request: Request):
             media_type="application/json",
         )
     try:
-        conv = JsonToCsv()
-        csv_result = conv.convert.remote(body.decode("utf-8"))
+        csv_result = json_to_csv(body.decode("utf-8"))
         return Response(
             content=csv_result,
             media_type="text/csv",
@@ -82,13 +78,17 @@ async def converter(request: Request):
         )
 
 
+@app.function(image=image)
+def convert_large(json_str: str) -> str:
+    return json_to_csv(json_str)
+
+
 @app.local_entrypoint()
 def main(file_path: str = "example_input.json", output: str = "output.csv"):
     with open(file_path, "r") as f:
         json_str = f.read()
 
-    converter = JsonToCsv()
-    csv_result = converter.convert.remote(json_str)
+    csv_result = convert_large.remote(json_str)
 
     with open(output, "w") as f:
         f.write(csv_result)
